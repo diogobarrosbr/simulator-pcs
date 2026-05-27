@@ -28,9 +28,9 @@ node_labels = df_dados['Nó'].astype(str).tolist()
 num_nodes = len(node_labels)
 
 # Extração dos cenários
-s1 = df_dados[['S1_CG1', 'S1_CG2', 'S1_CG3']].values
-s2 = df_dados[['S2_CG1', 'S2_CG2', 'S2_CG3']].values
-s3 = df_dados[['S3_CG1', 'S3_CG2', 'S3_CG3']].values
+s1 = df_dados[['S1_CG1', 'S1_CG2', 'S1_CG3', 'S1_CG4']].values
+s2 = df_dados[['S2_CG1', 'S2_CG2', 'S2_CG3', 'S2_CG4']].values
+s3 = df_dados[['S3_CG1', 'S3_CG2', 'S3_CG3', 'S3_CG4']].values
 
 scaler = StandardScaler()
 z1 = scaler.fit_transform(s1) if len(s1) > 0 else []
