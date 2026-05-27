@@ -7,90 +7,112 @@ from sklearn.preprocessing import StandardScaler
 from scipy.spatial.distance import squareform
 
 st.set_page_config(page_title="Zoneamento PCS", layout="wide")
-st.title("Simulador de Agrupamento de Nós (Google Sheets)")
+st.title("Simulador de Agrupamento de Nós (Upload de Arquivo)")
 
-# 1. COLE AQUI O SEU LINK PUBLICADO DO GOOGLE SHEETS (CSV)
-SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRYLscAsrJp-neajDmauJxeYvjXsndk-CTR60ba3soZ1Oe2ue-yXn4nV_OgZ1bSgWjxvJLYwT4_di-U/pub?output=csv"
+# 1. Campo para o usuário fazer o upload da planilha
+uploaded_file = st.file_uploader("Faça o upload da sua planilha de simulação (CSV ou Excel)", type=["csv", "xlsx"])
 
-@st.cache_data(ttl=30) # Atualiza de 30 em 30 segundos se houver mudança
-def carregar_dados(url):
+if uploaded_file is not None:
+    # Lê o arquivo automaticamente identificando o separador (, ou ;)
+    if uploaded_file.name.endswith('.csv'):
+        df_dados = pd.read_csv(uploaded_file, sep=None, engine='python', decimal=',')
+    else:
+        df_dados = pd.read_excel(uploaded_file)
+
     try:
-        # Lê o CSV. Tenta identificar automaticamente se o separador é vírgula ou ponto-e-vírgula
-        df = pd.read_csv(url, sep=None, engine='python', decimal=',')
-        return df
-    except Exception as e:
-        st.error(f"Erro ao carregar a planilha. Verifique o link publicado. Detalhe: {e}")
-        st.stop()
+        # Identifica as colunas de gases dinamicamente (Tudo que começar com 'Porcentagem_')
+        gas_cols = [col for col in df_dados.columns if col.startswith('Porcentagem_')]
 
-df_dados = carregar_dados(SHEET_CSV_URL)
+        # Extrai os nós únicos garantindo a ordem alfabética (Nó_01, Nó_02...)
+        node_labels = sorted(df_dados['ID_No'].astype(str).unique())
+        num_nodes = len(node_labels)
 
-node_labels = df_dados['Nó'].astype(str).tolist()
-num_nodes = len(node_labels)
+        # Extrai os cenários únicos presentes na base (Sim_01, Sim_02...)
+        cenarios_unicos = sorted(df_dados['Cenario'].astype(str).unique())
 
-# Extração dos cenários
-s1 = df_dados[['S1_CG1', 'S1_CG2', 'S1_CG3', 'S1_CG4']].values
-s2 = df_dados[['S2_CG1', 'S2_CG2', 'S2_CG3', 'S2_CG4']].values
-s3 = df_dados[['S3_CG1', 'S3_CG2', 'S3_CG3', 'S3_CG4']].values
+        # 2. Preparação e Padronização dos Dados por Cenário
+        scaler = StandardScaler()
+        z_dict = {}
 
-scaler = StandardScaler()
-z1 = scaler.fit_transform(s1) if len(s1) > 0 else []
-z2 = scaler.fit_transform(s2) if len(s2) > 0 else []
-z3 = scaler.fit_transform(s3) if len(s3) > 0 else []
-
-# 2. Interface (Barra Lateral)
-st.sidebar.header("Parâmetros do Algoritmo")
-threshold = st.sidebar.slider("Limiar de Corte (Threshold)", 0.1, 5.0, 2.0, 0.1)
-min_nodes = st.sidebar.number_input("Mínimo de Nós por Zona", 1, 10, 1)
-
-st.sidebar.subheader("Cenários Ativos")
-use_s1 = st.sidebar.checkbox("Cenário 1: Padrão", True)
-use_s2 = st.sidebar.checkbox("Cenário 2: Queda de Pressão", True)
-use_s3 = st.sidebar.checkbox("Cenário 3: Válvula de Anel", True)
-
-if st.sidebar.button("🔄 Forçar Atualização da Planilha"):
-    st.cache_data.clear()
-
-if not (use_s1 or use_s2 or use_s3):
-    st.warning("Selecione pelo menos um cenário para realizar o cálculo.")
-elif num_nodes < 2:
-    st.warning("Adicione pelo menos 2 nós na planilha para rodar o agrupamento.")
-else:
-    # 3. Matemática (Chebyshev)
-    dist_matrix = np.zeros((num_nodes, num_nodes))
-    for i in range(num_nodes):
-        for j in range(i + 1, num_nodes):
-            diffs = []
-            if use_s1: diffs.append(np.max(np.abs(z1[i] - z1[j])))
-            if use_s2: diffs.append(np.max(np.abs(z2[i] - z2[j])))
-            if use_s3: diffs.append(np.max(np.abs(z3[i] - z3[j])))
+        for cenario in cenarios_unicos:
+            # Filtra os dados apenas para o cenário atual
+            df_cenario = df_dados[df_dados['Cenario'] == cenario]
             
-            dist_matrix[i, j] = max(diffs)
-            dist_matrix[j, i] = dist_matrix[i, j]
+            # Usa o ID_No como índice e reordena para garantir o alinhamento correto dos nós
+            df_cenario = df_cenario.set_index('ID_No').reindex(node_labels)
+            
+            # Extrai os valores das porcentagens e aplica o Z-score
+            s_values = df_cenario[gas_cols].values
+            z_dict[cenario] = scaler.fit_transform(s_values)
 
-    condensed_dist = squareform(dist_matrix)
-    Z = linkage(condensed_dist, method='complete')
-    clusters = fcluster(Z, threshold, criterion='distance')
+        # 3. Interface (Barra Lateral Dinâmica)
+        st.sidebar.header("Parâmetros do Algoritmo")
+        threshold = st.sidebar.slider("Limiar de Corte (Threshold)", 0.1, 10.0, 2.0, 0.1)
+        min_nodes = st.sidebar.number_input("Mínimo de Nós por Zona", 1, 15, 1)
 
-    # 4. Visualização
-    col1, col2 = st.columns([2, 1])
-
-    with col1:
-        st.subheader("Dendrograma Multicenário")
-        fig, ax = plt.subplots(figsize=(10, 6))
-        dendrogram(Z, labels=node_labels, color_threshold=threshold, ax=ax)
-        ax.axhline(y=threshold, c='r', ls='--', label=f'Corte = {threshold}')
-        ax.set_ylabel("Distância Máxima")
-        plt.xticks(rotation=45, ha='right')
-        ax.legend()
-        st.pyplot(fig)
-
-    with col2:
-        st.subheader("Resultado das Zonas")
-        df_results = pd.DataFrame({'Nó': node_labels, 'Zona_PCS': clusters})
-        zone_counts = df_results['Zona_PCS'].value_counts()
-        df_results['Status'] = df_results['Zona_PCS'].apply(
-            lambda x: "✅" if zone_counts[x] >= min_nodes else "⚠️ Isolado"
-        )
+        st.sidebar.subheader("Cenários Ativos")
+        cenarios_ativos = []
         
-        st.metric("Total de Zonas Válidas", len(zone_counts))
-        st.dataframe(df_results, use_container_width=True, hide_index=True)
+        # Cria os checkboxes automaticamente baseado em quantos cenários existirem na planilha
+        for cenario in cenarios_unicos:
+            ativo = st.sidebar.checkbox(f"Considerar {cenario}", True)
+            if ativo:
+                cenarios_ativos.append(cenario)
+
+        # Validações de segurança
+        if not cenarios_ativos:
+            st.warning("Selecione pelo menos um cenário no menu lateral para realizar o cálculo.")
+        elif num_nodes < 2:
+            st.warning("A planilha precisa ter pelo menos 2 nós preenchidos para rodar o agrupamento.")
+        else:
+            # 4. Matemática (Chebyshev Multi-Cenário Dinâmico)
+            dist_matrix = np.zeros((num_nodes, num_nodes))
+            
+            for i in range(num_nodes):
+                for j in range(i + 1, num_nodes):
+                    diffs = []
+                    # Calcula a diferença apenas nos cenários que o usuário manteve marcados
+                    for cenario in cenarios_ativos:
+                        z_atual = z_dict[cenario]
+                        diffs.append(np.max(np.abs(z_atual[i] - z_atual[j])))
+                    
+                    # Salva o pior caso
+                    dist_matrix[i, j] = max(diffs)
+                    dist_matrix[j, i] = dist_matrix[i, j]
+
+            # Clusterização
+            condensed_dist = squareform(dist_matrix)
+            Z = linkage(condensed_dist, method='complete')
+            clusters = fcluster(Z, threshold, criterion='distance')
+
+            # 5. Visualização
+            col1, col2 = st.columns([2, 1])
+
+            with col1:
+                st.subheader("Dendrograma de Distância")
+                fig, ax = plt.subplots(figsize=(10, 6))
+                dendrogram(Z, labels=node_labels, color_threshold=threshold, ax=ax)
+                ax.axhline(y=threshold, c='r', ls='--', label=f'Corte = {threshold}')
+                ax.set_ylabel("Distância Máxima (Chebyshev)")
+                # Rotaciona o nome dos nós na base para não sobrepor
+                plt.xticks(rotation=90, ha='center', fontsize=8) 
+                ax.legend()
+                st.pyplot(fig)
+
+            with col2:
+                st.subheader("Resultado das Zonas")
+                df_results = pd.DataFrame({'Nó': node_labels, 'Zona_PCS': clusters})
+                zone_counts = df_results['Zona_PCS'].value_counts()
+                
+                # Valida o Mínimo de Nós
+                df_results['Status'] = df_results['Zona_PCS'].apply(
+                    lambda x: "✅ OK" if zone_counts[x] >= min_nodes else "⚠️ Isolado"
+                )
+                
+                st.metric("Total de Zonas Válidas", len(zone_counts))
+                st.dataframe(df_results, use_container_width=True, hide_index=True)
+
+    except Exception as e:
+        st.error(f"Erro ao processar os dados. Verifique o formato da planilha. Detalhes técnicos: {e}")
+else:
+    st.info("Aguardando o upload do arquivo base (csv ou xlsx)...")
