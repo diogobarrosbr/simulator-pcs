@@ -7,6 +7,10 @@ from sklearn.preprocessing import StandardScaler
 from scipy.spatial.distance import squareform
 from sklearn.metrics import silhouette_score
 import plotly.express as px # <-- Adicione esta linha no topo
+import plotly.graph_objects as go # Importação do motor de baixo nível
+from scipy.spatial import ConvexHull # Importação da ferramenta geográfica
+import numpy as np # Necessário para manipulação de matrizes
+
 
 st.set_page_config(page_title="Zoneamento PCS", layout="wide")
 st.title("Simulador de Agrupamento de Nós")
@@ -200,56 +204,104 @@ if uploaded_files:
 
                 st.dataframe(df_results, use_container_width=True, hide_index=True)
 
-            # ==========================================
-            # NOVO: MAPA INTERATIVO PLOTLY EXPRESS
-            # ==========================================
+
+            # =========================================================
+            # NOVO: MAPA TERRITORIAL COM NUVENS (CONVEX HULLS)
+            # Motor: plotly.graph_objects + scipy.spatial
+            # =========================================================
             st.markdown("---")
-            st.subheader("Mapa Espacial de Zonas de PCS")
+            st.subheader("Mapa Territorial de Zonas de PCS")
 
             df_results = pd.DataFrame({'Nó': node_labels, 'Zona_PCS': clusters})
             zone_counts = df_results['Zona_PCS'].value_counts()
             
-            # 1. Junta os dados do Dataframe de Coordenadas com o Resultado das Zonas
-            # Presumindo que df_dados possui 'Coordenada_X' e 'Coordenada_Y' 
-            # e que você pegou as coordenadas apenas de 1 cenário (pois elas não mudam)
-            
-            # Pega as coordenadas de qualquer cenário base para plotar
+            # 1. Preparação dos Dados (Mesma lógica anterior)
             df_coords = df_dados[df_dados['Cenario'] == cenarios_unicos[0]][['ID_No', 'Coordenada_X', 'Coordenada_Y']].copy()
-            
-            # Junta com o DataFrame de resultados da clusterização
             df_mapa = pd.merge(df_coords, df_results, left_on='ID_No', right_on='Nó')
             
-            # Converte a coluna Zona_PCS para string (texto) para que o Plotly 
-            # trate como categorias (cores distintas) e não como um gradiente numérico contínuo.
-            df_mapa['Zona_PCS_Categorica'] = 'Zona ' + df_mapa['Zona_PCS'].astype(str)
-            
-            # 2. Configura e Plota o Mapa
-            # Como suas coordenadas (224000, 7480000) parecem ser UTM e não (Lat, Lon),
-            # usaremos um scatter genérico. Se fossem Lat/Lon, usaríamos px.scatter_mapbox
-            
-            fig_mapa = px.scatter(
-                df_mapa, 
-                x="Coordenada_X", 
-                y="Coordenada_Y", 
-                color="Zona_PCS_Categorica",
-                hover_name="Nó",
-                title=f"Distribuição Territorial (Corte: {threshold})",
-                labels={"Coordenada_X": "Eixo X (Leste)", "Coordenada_Y": "Eixo Y (Norte)", "Zona_PCS_Categorica": "Setor"},
-                height=600
-            )
-            
-            # Melhorias Visuais do Mapa
-            fig_mapa.update_traces(marker=dict(size=14, line=dict(width=1, color='DarkSlateGrey')))
-            # Destaca a diferença entre os nós usando uma paleta de cores forte e fixa
-            fig_mapa.update_layout(
-                plot_bgcolor='rgba(240, 242, 246, 0.8)', # Cor de fundo neutra
-                legend_title_text='Zonas Formadas',
-                xaxis=dict(showgrid=False, zeroline=False),
-                yaxis=dict(showgrid=False, zeroline=False)
-            )
-            
-            st.plotly_chart(fig_mapa, use_container_width=True)
+            # Define uma paleta de cores forte e distinta para as zonas (Expanda se tiver muitas zonas)
+            paleta_cores = px.colors.qualitative.Bold 
 
+            # Inicializa a Figura vazia do motor de Baixo Nível
+            fig_territorial = go.Figure()
+
+            # 2. LOOP MATEMÁTICO: Calcular e desenhar as "Nuvens" para cada Zona
+            zonas_unicas = sorted(df_mapa['Zona_PCS'].unique())
+
+            for i, zona in enumerate(zonas_unicas):
+                # Filtra os nós pertencentes apenas a esta zona
+                df_zona = df_mapa[df_mapa['Zona_PCS'] == zona]
+                
+                # Pega as coordenadas X e Y como uma matriz NumPy
+                pontos = df_zona[['Coordenada_X', 'Coordenada_Y']].values
+                
+                # DICA TÉCNICA: Uma envoltória convexa precisa de pelo menos 3 pontos
+                # Se a zona for muito pequena (nó isolado), desenhamos apenas os pontos, sem nuvem.
+                if len(pontos) >= 3:
+                    try:
+                        # O SciPy calcula quais são os pontos mais externos do grupo
+                        hull = ConvexHull(pontos)
+                        # Fecha o polígono voltando ao primeiro ponto
+                        vertices = np.append(hull.vertices, hull.vertices[0])
+                        
+                        # Extrai as coordenadas X e Y dos vértices da fronteira
+                        hull_x = pontos[vertices, 0]
+                        hull_y = pontos[vertices, 1]
+                        
+                        # Define a cor desta zona baseada na paleta
+                        cor_zona = paleta_cores[i % len(paleta_cores)]
+                        
+                        # ADICIONA A CAMADA DA NUVEM (Scatter com preenchimento)
+                        fig_territorial.add_trace(go.Scatter(
+                            x=hull_x, 
+                            y=hull_y,
+                            mode='lines',        # Desenha a linha de borda
+                            name=f'Território Zona {zona}',
+                            fill='toself',       # Preenche o interior do polígono
+                            fillcolor=cor_zona, # Cor do preenchimento
+                            opacity=0.2,         # Torna a nuvem translúcida (efeito cloud)
+                            line=dict(color=cor_zona, width=1, dash='dot'), # Linha de borda pontilhada
+                            hoverinfo='skip',    # Não mostra balão ao passar o mouse na nuvem
+                            showlegend=True      # Mostra esta zona na legenda
+                        ))
+                    except:
+                        # Em casos raros onde pontos são colineares, o SciPy falha. Ignoramos.
+                        pass
+
+            # 3. ADICIONA A CAMADA DOS PONTOS (Nós da Rede) por cima das nuvens
+            for i, zona in enumerate(zonas_unicas):
+                df_zona = df_mapa[df_mapa['Zona_PCS'] == zona]
+                cor_zona = paleta_cores[i % len(paleta_cores)]
+                
+                # Pontos normais (Nós de consumo)
+                fig_territorial.add_trace(go.Scatter(
+                    x=df_zona['Coordenada_X'], 
+                    y=df_zona['Coordenada_Y'],
+                    mode='markers+text', # Mostra o ponto e o nome
+                    name=f'Nós Zona {zona}',
+                    text=df_zona['Nó'],  # Texto a exibir
+                    textposition="top center",
+                    marker=dict(
+                        size=12, 
+                        color=cor_zona, # Cor sólida da zona
+                        line=dict(width=1, color='DarkSlateGrey')
+                    ),
+                    hoverinfo='text',    # Mostra apenas o nome no mouse
+                    showlegend=False      # Não duplicar na legenda (já temos a nuvem)
+                ))
+
+            # 4. Configuração Final do Layout (Visual)
+            fig_territorial.update_layout(
+                title=f"Zoneamento Territorial de PCS (Ponto Doce: Corte {threshold}%)",
+                xaxis=dict(title="Eixo X (Mestros)", showgrid=False, zeroline=False),
+                yaxis=dict(title="Eixo Y (Metros)", showgrid=False, zeroline=False),
+                plot_bgcolor='rgba(248, 249, 250, 1)', # Fundo cinza muito claro
+                height=700,
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+            )
+            
+            st.plotly_chart(fig_territorial, use_container_width=True)
+            # ==========================================
     
     except Exception as e:
         st.error(f"Erro ao processar os dados. Verifique o formato da planilha. Detalhes técnicos: {e}")
