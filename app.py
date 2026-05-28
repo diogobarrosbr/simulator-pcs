@@ -110,8 +110,6 @@ if uploaded_files:
             condensed_dist = squareform(dist_matrix)
             Z = linkage(condensed_dist, method='complete')
             clusters = fcluster(Z, threshold, criterion='distance')
-            df_results = pd.DataFrame({'Nó': node_labels, 'Zona_PCS': clusters})
-            zone_counts = df_results['Zona_PCS'].value_counts()
 
             # --- NOVO: CÁLCULO DO SILHOUETTE SCORE ---
             num_zonas_unicas = len(set(clusters))
@@ -162,12 +160,54 @@ if uploaded_files:
                 st.success(f"💡 Dica do Algoritmo: Para maximizar a coesão matemática baseada nos cenários selecionados, mova o slider superior para **{melhor_t:.1f}** (Score previsto: {melhor_score:.3f}).")
             else:
                 st.info("Não foi possível calcular uma curva de otimização com os parâmetros atuais.")
+                
+            # ==========================================
+            # 5. Visualização
+            col1, col2 = st.columns([2, 1])
+
+            with col1:
+                st.subheader("Dendrograma de Distância")
+                fig, ax = plt.subplots(figsize=(10, 6))
+                dendrogram(Z, labels=node_labels, color_threshold=threshold, ax=ax)
+                ax.axhline(y=threshold, c='r', ls='--', label=f'Corte = {threshold}')
+                ax.set_ylabel("Distância Máxima (Chebyshev)")
+                plt.xticks(rotation=90, ha='center', fontsize=8) 
+                ax.legend()
+                st.pyplot(fig)
+
+            with col2:
+                st.subheader("Resultado das Zonas")
+                df_results = pd.DataFrame({'Nó': node_labels, 'Zona_PCS': clusters})
+                zone_counts = df_results['Zona_PCS'].value_counts()
+                
+                df_results['Status'] = df_results['Zona_PCS'].apply(
+                    lambda x: "✅ OK" if zone_counts[x] >= min_nodes else "⚠️ Isolado"
+                )
+                
+                # --- NOVO: EXIBIÇÃO DA MÉTRICA ---
+                col_m1, col_m2 = st.columns(2)
+                with col_m1:
+                    st.metric("Total de Zonas Válidas", len(zone_counts))
+                with col_m2:
+                    if score_silhueta is not None:
+                        # Exibe com 3 casas decimais e usa a cor do Streamlit para indicar positividade
+                        st.metric("Silhouette Score", f"{score_silhueta:.3f}", 
+                                  help="Varia de -1 a 1. Mais próximo de 1 = Grupos coesos e bem separados.")
+                    else:
+                        st.metric("Silhouette Score", "N/A", 
+                                  help="O score requer pelo menos 2 zonas formadas para ser calculado.")
+                # ---------------------------------
+
+                st.dataframe(df_results, use_container_width=True, hide_index=True)
 
             # ==========================================
             # NOVO: MAPA INTERATIVO PLOTLY EXPRESS
             # ==========================================
             st.markdown("---")
             st.subheader("Mapa Espacial de Zonas de PCS")
+
+            df_results = pd.DataFrame({'Nó': node_labels, 'Zona_PCS': clusters})
+            zone_counts = df_results['Zona_PCS'].value_counts()
             
             # 1. Junta os dados do Dataframe de Coordenadas com o Resultado das Zonas
             # Presumindo que df_dados possui 'Coordenada_X' e 'Coordenada_Y' 
@@ -209,45 +249,8 @@ if uploaded_files:
             )
             
             st.plotly_chart(fig_mapa, use_container_width=True)
-            # ==========================================
-            # 5. Visualização
-            col1, col2 = st.columns([2, 1])
 
-            with col1:
-                st.subheader("Dendrograma de Distância")
-                fig, ax = plt.subplots(figsize=(10, 6))
-                dendrogram(Z, labels=node_labels, color_threshold=threshold, ax=ax)
-                ax.axhline(y=threshold, c='r', ls='--', label=f'Corte = {threshold}')
-                ax.set_ylabel("Distância Máxima (Chebyshev)")
-                plt.xticks(rotation=90, ha='center', fontsize=8) 
-                ax.legend()
-                st.pyplot(fig)
-
-            with col2:
-                st.subheader("Resultado das Zonas")
-                df_results = pd.DataFrame({'Nó': node_labels, 'Zona_PCS': clusters})
-                zone_counts = df_results['Zona_PCS'].value_counts()
-                
-                df_results['Status'] = df_results['Zona_PCS'].apply(
-                    lambda x: "✅ OK" if zone_counts[x] >= min_nodes else "⚠️ Isolado"
-                )
-                
-                # --- NOVO: EXIBIÇÃO DA MÉTRICA ---
-                col_m1, col_m2 = st.columns(2)
-                with col_m1:
-                    st.metric("Total de Zonas Válidas", len(zone_counts))
-                with col_m2:
-                    if score_silhueta is not None:
-                        # Exibe com 3 casas decimais e usa a cor do Streamlit para indicar positividade
-                        st.metric("Silhouette Score", f"{score_silhueta:.3f}", 
-                                  help="Varia de -1 a 1. Mais próximo de 1 = Grupos coesos e bem separados.")
-                    else:
-                        st.metric("Silhouette Score", "N/A", 
-                                  help="O score requer pelo menos 2 zonas formadas para ser calculado.")
-                # ---------------------------------
-                
-                st.dataframe(df_results, use_container_width=True, hide_index=True)
-
+    
     except Exception as e:
         st.error(f"Erro ao processar os dados. Verifique o formato da planilha. Detalhes técnicos: {e}")
 else:
