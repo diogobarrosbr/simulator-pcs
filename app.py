@@ -135,33 +135,6 @@ if uploaded_file is not None:
                 
                 st.dataframe(df_results, use_container_width=True, hide_index=True)
 
-            # 5. Visualização
-            col1, col2 = st.columns([2, 1])
-
-            with col1:
-                st.subheader("Dendrograma de Distância")
-                fig, ax = plt.subplots(figsize=(10, 6))
-                dendrogram(Z, labels=node_labels, color_threshold=threshold, ax=ax)
-                ax.axhline(y=threshold, c='r', ls='--', label=f'Corte = {threshold}')
-                ax.set_ylabel("Distância Máxima (Chebyshev)")
-                # Rotaciona o nome dos nós na base para não sobrepor
-                plt.xticks(rotation=90, ha='center', fontsize=8) 
-                ax.legend()
-                st.pyplot(fig)
-
-            with col2:
-                st.subheader("Resultado das Zonas")
-                df_results = pd.DataFrame({'Nó': node_labels, 'Zona_PCS': clusters})
-                zone_counts = df_results['Zona_PCS'].value_counts()
-                
-                # Valida o Mínimo de Nós
-                df_results['Status'] = df_results['Zona_PCS'].apply(
-                    lambda x: "✅ OK" if zone_counts[x] >= min_nodes else "⚠️ Isolado"
-                )
-                
-                st.metric("Total de Zonas Válidas", len(zone_counts))
-                st.dataframe(df_results, use_container_width=True, hide_index=True)
-
     except Exception as e:
         st.error(f"Erro ao processar os dados. Verifique o formato da planilha. Detalhes técnicos: {e}")
 else:
