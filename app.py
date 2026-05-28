@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler
 from scipy.spatial.distance import squareform
 from sklearn.metrics import silhouette_score
+import plotly.express as px # <-- Adicione esta linha no topo
 
 st.set_page_config(page_title="Zoneamento PCS", layout="wide")
 st.title("Simulador de Agrupamento de Nós")
@@ -160,6 +161,53 @@ if uploaded_files:
             else:
                 st.info("Não foi possível calcular uma curva de otimização com os parâmetros atuais.")
 
+            # ==========================================
+            # NOVO: MAPA INTERATIVO PLOTLY EXPRESS
+            # ==========================================
+            st.markdown("---")
+            st.subheader("Mapa Espacial de Zonas de PCS")
+            
+            # 1. Junta os dados do Dataframe de Coordenadas com o Resultado das Zonas
+            # Presumindo que df_dados possui 'Coordenada_X' e 'Coordenada_Y' 
+            # e que você pegou as coordenadas apenas de 1 cenário (pois elas não mudam)
+            
+            # Pega as coordenadas de qualquer cenário base para plotar
+            df_coords = df_dados[df_dados['Cenario'] == cenarios_unicos[0]][['ID_No', 'Coordenada_X', 'Coordenada_Y']].copy()
+            
+            # Junta com o DataFrame de resultados da clusterização
+            df_mapa = pd.merge(df_coords, df_results, left_on='ID_No', right_on='Nó')
+            
+            # Converte a coluna Zona_PCS para string (texto) para que o Plotly 
+            # trate como categorias (cores distintas) e não como um gradiente numérico contínuo.
+            df_mapa['Zona_PCS_Categorica'] = 'Zona ' + df_mapa['Zona_PCS'].astype(str)
+            
+            # 2. Configura e Plota o Mapa
+            # Como suas coordenadas (224000, 7480000) parecem ser UTM e não (Lat, Lon),
+            # usaremos um scatter genérico. Se fossem Lat/Lon, usaríamos px.scatter_mapbox
+            
+            fig_mapa = px.scatter(
+                df_mapa, 
+                x="Coordenada_X", 
+                y="Coordenada_Y", 
+                color="Zona_PCS_Categorica",
+                hover_name="Nó",
+                title=f"Distribuição Territorial (Corte: {threshold})",
+                labels={"Coordenada_X": "Eixo X (Leste)", "Coordenada_Y": "Eixo Y (Norte)", "Zona_PCS_Categorica": "Setor"},
+                height=600
+            )
+            
+            # Melhorias Visuais do Mapa
+            fig_mapa.update_traces(marker=dict(size=14, line=dict(width=1, color='DarkSlateGrey')))
+            # Destaca a diferença entre os nós usando uma paleta de cores forte e fixa
+            fig_mapa.update_layout(
+                plot_bgcolor='rgba(240, 242, 246, 0.8)', # Cor de fundo neutra
+                legend_title_text='Zonas Formadas',
+                xaxis=dict(showgrid=False, zeroline=False),
+                yaxis=dict(showgrid=False, zeroline=False)
+            )
+            
+            st.plotly_chart(fig_mapa, use_container_width=True)
+            # ==========================================
             # 5. Visualização
             col1, col2 = st.columns([2, 1])
 
