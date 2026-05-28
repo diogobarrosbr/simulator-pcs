@@ -71,7 +71,8 @@ if uploaded_files:
 
         # 3. Interface (Barra Lateral Dinâmica)
         st.sidebar.header("Parâmetros do Algoritmo")
-        threshold = st.sidebar.slider("Limiar de Corte (Threshold)", 0.1, 100.0, 2.0, 0.1)
+        #threshold = st.sidebar.slider("Limiar de Corte (Threshold)", 0.1, 5.0, 2.0, 0.1)
+        threshold = st.sidebar.slider("Limiar de Corte (Threshold)", 0.1, 100.0, 10.0, 0.1)
         min_nodes = st.sidebar.number_input("Mínimo de Nós por Zona", 1, 15, 1)
 
         st.sidebar.subheader("Cenários Ativos")
@@ -123,7 +124,8 @@ if uploaded_files:
             st.subheader("Análise Automática do Melhor Corte (Otimização)")
             
             # 1. Varredura automática
-            range_thresholds = np.arange(0.1, 10.0, 0.1)
+            #range_thresholds = np.arange(0.1, 10.0, 0.1)
+            range_thresholds = np.arange(1.0, 100.0, 0.5)
             lista_scores = []
             lista_thresholds = []
             
