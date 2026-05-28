@@ -215,22 +215,41 @@ if uploaded_files:
             df_results = pd.DataFrame({'Nó': node_labels, 'Zona_PCS': clusters})
             zone_counts = df_results['Zona_PCS'].value_counts()
             
-            # 1. Preparação dos Dados
-            df_coords = df_dados[df_dados['Cenario'] == cenarios_unicos[0]][['ID_No', 'Coordenada_X', 'Coordenada_Y']].copy()
+            # 1. Mapeia e limpa as colunas de gás do cenário atual
+            gas_cols = [col for col in df_dados.columns if col.startswith('Porcentagem_')]
+            df_coords = df_dados[df_dados['Cenario'] == cenarios_unicos[0]][['ID_No', 'Coordenada_X', 'Coordenada_Y'] + gas_cols].copy()
+            
+            # Garante que os valores de gás são floats (tratando possíveis problemas de vírgula)
+            for col in gas_cols:
+                df_coords[col] = df_coords[col].astype(str).str.replace(',', '.', regex=False).astype(float)
+
+            # FUNÇÃO AUXILIAR: Monta o texto do balão considerando apenas fontes > 0
+            def gerar_texto_composicao(row):
+                linhas = []
+                for col in gas_cols:
+                    val = row[col]
+                    if val > 0.01:  # Ignora fontes com 0% ou ruídos insignificantes
+                        nome_fonte = col.replace("Porcentagem_", "")
+                        linhas.append(f"• {nome_fonte}: {val:.2f}%")
+                return "<br>".join(linhas) if linhas else "• Sem fontes ativas"
+
+            # Aplica a função para criar uma nova coluna de texto puro
+            df_coords['Composicao_Texto'] = df_coords.apply(gerar_texto_composicao, axis=1)
+            
+            # Junta com os resultados matemáticos das zonas
             df_mapa = pd.merge(df_coords, df_results, left_on='ID_No', right_on='Nó')
             
             paleta_cores = px.colors.qualitative.Bold 
             fig_territorial = go.Figure()
-
             zonas_unicas = sorted(df_mapa['Zona_PCS'].unique())
 
-            # 2. Loop único para processar cada Zona
+            # 2. Loop para renderizar o mapa territorial
             for i, zona in enumerate(zonas_unicas):
                 df_zona = df_mapa[df_mapa['Zona_PCS'] == zona]
                 pontos = df_zona[['Coordenada_X', 'Coordenada_Y']].values
                 cor_zona = paleta_cores[i % len(paleta_cores)]
                 
-                # CAMADA DA NUVEM: Gerada apenas se a zona tiver 3 ou mais pontos
+                # CAMADA DA NUVEM (Zonas com 3 ou mais pontos)
                 if len(pontos) >= 3:
                     try:
                         hull = ConvexHull(pontos)
@@ -239,54 +258,55 @@ if uploaded_files:
                         hull_y = pontos[vertices, 1]
                         
                         fig_territorial.add_trace(go.Scatter(
-                            x=hull_x, 
-                            y=hull_y,
+                            x=hull_x, y=hull_y,
                             mode='lines',
                             fill='toself',
                             fillcolor=cor_zona,
                             opacity=0.15,
                             line=dict(color=cor_zona, width=1, dash='dot'),
-                            hoverinfo='skip',     # Ignora o mouse na nuvem para focar no ponto
-                            showlegend=False      # Oculta a nuvem da legenda (evita duplicar)
+                            hoverinfo='skip',
+                            showlegend=False
                         ))
                     except:
                         pass
 
-                # CAMADA DOS PONTOS: Ativa para todas as zonas (incluindo 1 ou 2 pontos)
-                # Esta camada agora controla a legenda lateral e os popups de hover
+                # CAMADA DOS PONTOS (Ativa para todas as zonas, com Hover customizado)
+                # Criamos uma matriz para o customdata contendo a Zona e o Texto da Composição
+                dados_customizados = np.stack((df_zona['Zona_PCS'], df_zona['Composicao_Texto']), axis=-1)
+
                 fig_territorial.add_trace(go.Scatter(
                     x=df_zona['Coordenada_X'], 
                     y=df_zona['Coordenada_Y'],
-                    mode='markers',               # Limpa o mapa tirando os textos fixos que encavalavam
-                    name=f'Zona {zona}',          # Nome correto na legenda lateral
+                    mode='markers',
+                    name=f'Zona {zona}',
                     marker=dict(
                         size=13, 
                         color=cor_zona,
                         line=dict(width=1, color='DarkSlateGrey')
                     ),
-                    # Configuração clássica de balão de texto (Hover) ao passar o mouse
                     hovertext=df_zona['Nó'],
-                    customdata=df_zona['Zona_PCS'],
+                    customdata=dados_customizados,
+                    # Customização do Balão de informações
                     hovertemplate=(
                         "<b>%{hovertext}</b><br><br>"
-                        "Setor: Zona %{customdata}<br>"
-                        "Coordenada X: %{x}<br>"
-                        "Coordenada Y: %{y}"
+                        "<b>Setor:</b> Zona %{customdata[0]}<br>"
+                        "<b>X:</b> %{x}<br>"
+                        "<b>Y:</b> %{y}<br><br>"
+                        "<b>Composição Ativa:</b><br>"
+                        "%{customdata[1]}"  # <-- Renderiza a string filtrada pelo Pandas
                         "<extra></extra>"
                     ),
-                    showlegend=True               # Força o aparecimento na barra lateral do gráfico
+                    showlegend=True
                 ))
 
-            # 3. Layout com legenda na lateral direita
+            # 3. Configuração de Layout (Legenda fixa na lateral direita)
             fig_territorial.update_layout(
-                title=f"Distribuição Territorial (Corte: {threshold}%)",
+                title=f"Distribuição Territorial (Corte Atual: {threshold}%)",
                 xaxis=dict(title="Eixo X (Metros)", showgrid=False, zeroline=False),
                 yaxis=dict(title="Eixo Y (Metros)", showgrid=False, zeroline=False),
                 plot_bgcolor='rgba(245, 247, 250, 1)',
                 height=650,
-                # Removemos o posicionamento horizontal anterior. 
-                # O Plotly joga a legenda automaticamente para a lateral direita de forma vertical.
-                showlegend=True 
+                showlegend=True
             )
             
             st.plotly_chart(fig_territorial, use_container_width=True)
