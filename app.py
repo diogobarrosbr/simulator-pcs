@@ -63,8 +63,11 @@ if uploaded_files:
             df_cenario = df_cenario.set_index('ID_No').reindex(node_labels)
             
             # Extrai os valores das porcentagens e aplica o Z-score
-            s_values = df_cenario[gas_cols].values
-            z_dict[cenario] = scaler.fit_transform(s_values)
+            #s_values = df_cenario[gas_cols].values
+            #z_dict[cenario] = scaler.fit_transform(s_values)
+
+            # Extrai os valores das porcentagens sem aplicar o z-score
+            z_dict[cenario] = df_cenario[gas_cols].values
 
         # 3. Interface (Barra Lateral Dinâmica)
         st.sidebar.header("Parâmetros do Algoritmo")
