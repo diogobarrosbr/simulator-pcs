@@ -96,6 +96,44 @@ if uploaded_file is not None:
             else:
                 score_silhueta = None
             # -----------------------------------------
+            st.markdown("---")
+            st.subheader("Análise Automática do Melhor Corte (Otimização)")
+            
+            # 1. Varredura automática
+            range_thresholds = np.arange(0.1, 10.0, 0.1)
+            lista_scores = []
+            lista_thresholds = []
+            
+            for t in range_thresholds:
+                # Simula o corte para cada limiar possível
+                clusters_simulados = fcluster(Z, t, criterion='distance')
+                n_zonas = len(set(clusters_simulados))
+                
+                # Só calcula a silhueta se gerar um agrupamento válido (entre 2 e N-1 zonas)
+                if 1 < n_zonas < num_nodes:
+                    score = silhouette_score(dist_matrix, clusters_simulados, metric='precomputed')
+                    lista_scores.append(score)
+                    lista_thresholds.append(t)
+            
+            # 2. Plota o gráfico para o usuário
+            if len(lista_scores) > 0:
+                melhor_score = max(lista_scores)
+                melhor_t = lista_thresholds[lista_scores.index(melhor_score)]
+                
+                fig2, ax2 = plt.subplots(figsize=(10, 4))
+                ax2.plot(lista_thresholds, lista_scores, marker='.', linestyle='-', color='#1f77b4')
+                ax2.axvline(x=melhor_t, color='green', linestyle='--', label=f'Melhor Corte: {melhor_t:.1f}')
+                ax2.axvline(x=threshold, color='red', linestyle='-', alpha=0.5, label='Seu Corte Atual')
+                
+                ax2.set_xlabel("Limiar de Corte (Threshold)")
+                ax2.set_ylabel("Silhouette Score")
+                ax2.set_title("Busca pelo Ponto Doce da Clusterização")
+                ax2.legend()
+                st.pyplot(fig2)
+                
+                st.success(f"💡 Dica do Algoritmo: Para maximizar a coesão matemática baseada nos cenários selecionados, mova o slider superior para **{melhor_t:.1f}** (Score previsto: {melhor_score:.3f}).")
+            else:
+                st.info("Não foi possível calcular uma curva de otimização com os parâmetros atuais.")
 
             # 5. Visualização
             col1, col2 = st.columns([2, 1])
