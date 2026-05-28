@@ -215,89 +215,78 @@ if uploaded_files:
             df_results = pd.DataFrame({'Nó': node_labels, 'Zona_PCS': clusters})
             zone_counts = df_results['Zona_PCS'].value_counts()
             
-            # 1. Preparação dos Dados (Mesma lógica anterior)
+            # 1. Preparação dos Dados
             df_coords = df_dados[df_dados['Cenario'] == cenarios_unicos[0]][['ID_No', 'Coordenada_X', 'Coordenada_Y']].copy()
             df_mapa = pd.merge(df_coords, df_results, left_on='ID_No', right_on='Nó')
             
-            # Define uma paleta de cores forte e distinta para as zonas (Expanda se tiver muitas zonas)
             paleta_cores = px.colors.qualitative.Bold 
-
-            # Inicializa a Figura vazia do motor de Baixo Nível
             fig_territorial = go.Figure()
 
-            # 2. LOOP MATEMÁTICO: Calcular e desenhar as "Nuvens" para cada Zona
             zonas_unicas = sorted(df_mapa['Zona_PCS'].unique())
 
+            # 2. Loop único para processar cada Zona
             for i, zona in enumerate(zonas_unicas):
-                # Filtra os nós pertencentes apenas a esta zona
                 df_zona = df_mapa[df_mapa['Zona_PCS'] == zona]
-                
-                # Pega as coordenadas X e Y como uma matriz NumPy
                 pontos = df_zona[['Coordenada_X', 'Coordenada_Y']].values
+                cor_zona = paleta_cores[i % len(paleta_cores)]
                 
-                # DICA TÉCNICA: Uma envoltória convexa precisa de pelo menos 3 pontos
-                # Se a zona for muito pequena (nó isolado), desenhamos apenas os pontos, sem nuvem.
+                # CAMADA DA NUVEM: Gerada apenas se a zona tiver 3 ou mais pontos
                 if len(pontos) >= 3:
                     try:
-                        # O SciPy calcula quais são os pontos mais externos do grupo
                         hull = ConvexHull(pontos)
-                        # Fecha o polígono voltando ao primeiro ponto
                         vertices = np.append(hull.vertices, hull.vertices[0])
-                        
-                        # Extrai as coordenadas X e Y dos vértices da fronteira
                         hull_x = pontos[vertices, 0]
                         hull_y = pontos[vertices, 1]
                         
-                        # Define a cor desta zona baseada na paleta
-                        cor_zona = paleta_cores[i % len(paleta_cores)]
-                        
-                        # ADICIONA A CAMADA DA NUVEM (Scatter com preenchimento)
                         fig_territorial.add_trace(go.Scatter(
                             x=hull_x, 
                             y=hull_y,
-                            mode='lines',        # Desenha a linha de borda
-                            name=f'Território Zona {zona}',
-                            fill='toself',       # Preenche o interior do polígono
-                            fillcolor=cor_zona, # Cor do preenchimento
-                            opacity=0.2,         # Torna a nuvem translúcida (efeito cloud)
-                            line=dict(color=cor_zona, width=1, dash='dot'), # Linha de borda pontilhada
-                            hoverinfo='skip',    # Não mostra balão ao passar o mouse na nuvem
-                            showlegend=True      # Mostra esta zona na legenda
+                            mode='lines',
+                            fill='toself',
+                            fillcolor=cor_zona,
+                            opacity=0.15,
+                            line=dict(color=cor_zona, width=1, dash='dot'),
+                            hoverinfo='skip',     # Ignora o mouse na nuvem para focar no ponto
+                            showlegend=False      # Oculta a nuvem da legenda (evita duplicar)
                         ))
                     except:
-                        # Em casos raros onde pontos são colineares, o SciPy falha. Ignoramos.
                         pass
 
-            # 3. ADICIONA A CAMADA DOS PONTOS (Nós da Rede) por cima das nuvens
-            for i, zona in enumerate(zonas_unicas):
-                df_zona = df_mapa[df_mapa['Zona_PCS'] == zona]
-                cor_zona = paleta_cores[i % len(paleta_cores)]
-                
-                # Pontos normais (Nós de consumo)
+                # CAMADA DOS PONTOS: Ativa para todas as zonas (incluindo 1 ou 2 pontos)
+                # Esta camada agora controla a legenda lateral e os popups de hover
                 fig_territorial.add_trace(go.Scatter(
                     x=df_zona['Coordenada_X'], 
                     y=df_zona['Coordenada_Y'],
-                    mode='markers+text', # Mostra o ponto e o nome
-                    name=f'Nós Zona {zona}',
-                    text=df_zona['Nó'],  # Texto a exibir
-                    textposition="top center",
+                    mode='markers',               # Limpa o mapa tirando os textos fixos que encavalavam
+                    name=f'Zona {zona}',          # Nome correto na legenda lateral
                     marker=dict(
-                        size=12, 
-                        color=cor_zona, # Cor sólida da zona
+                        size=13, 
+                        color=cor_zona,
                         line=dict(width=1, color='DarkSlateGrey')
                     ),
-                    hoverinfo='text',    # Mostra apenas o nome no mouse
-                    showlegend=False      # Não duplicar na legenda (já temos a nuvem)
+                    # Configuração clássica de balão de texto (Hover) ao passar o mouse
+                    hovertext=df_zona['Nó'],
+                    customdata=df_zona['Zona_PCS'],
+                    hovertemplate=(
+                        "<b>%{hovertext}</b><br><br>"
+                        "Setor: Zona %{customdata}<br>"
+                        "Coordenada X: %{x}<br>"
+                        "Coordenada Y: %{y}"
+                        "<extra></extra>"
+                    ),
+                    showlegend=True               # Força o aparecimento na barra lateral do gráfico
                 ))
 
-            # 4. Configuração Final do Layout (Visual)
+            # 3. Layout com legenda na lateral direita
             fig_territorial.update_layout(
-                title=f"Zoneamento Territorial de PCS (Ponto Doce: Corte {threshold}%)",
-                xaxis=dict(title="Eixo X (Mestros)", showgrid=False, zeroline=False),
+                title=f"Distribuição Territorial (Corte: {threshold}%)",
+                xaxis=dict(title="Eixo X (Metros)", showgrid=False, zeroline=False),
                 yaxis=dict(title="Eixo Y (Metros)", showgrid=False, zeroline=False),
-                plot_bgcolor='rgba(248, 249, 250, 1)', # Fundo cinza muito claro
-                height=700,
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                plot_bgcolor='rgba(245, 247, 250, 1)',
+                height=650,
+                # Removemos o posicionamento horizontal anterior. 
+                # O Plotly joga a legenda automaticamente para a lateral direita de forma vertical.
+                showlegend=True 
             )
             
             st.plotly_chart(fig_territorial, use_container_width=True)
