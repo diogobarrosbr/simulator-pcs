@@ -4,24 +4,44 @@ import pandas as pd
 from scipy.cluster.hierarchy import dendrogram, linkage, fcluster
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import silhouette_score
 from scipy.spatial.distance import squareform
+from sklearn.metrics import silhouette_score
 
 st.set_page_config(page_title="Zoneamento PCS", layout="wide")
-st.title("Simulador de Agrupamento de Nós (Upload de Arquivo)")
+st.title("Simulador de Agrupamento de Nós")
 
-# 1. Campo para o usuário fazer o upload da planilha
-uploaded_file = st.file_uploader("Faça o upload da sua planilha de simulação (CSV ou Excel)", type=["csv", "xlsx"])
+# 1. Campo para o usuário fazer o upload de MÚLTIPLOS arquivos
+uploaded_files = st.file_uploader(
+    "Faça o upload dos arquivos de simulação (CSV ou Excel)", 
+    type=["csv", "xlsx"], 
+    accept_multiple_files=True # <-- A MÁGICA ACONTECE AQUI
+)
 
-if uploaded_file is not None:
-    # Lê o arquivo automaticamente identificando o separador (, ou ;)
-    if uploaded_file.name.endswith('.csv'):
-        df_dados = pd.read_csv(uploaded_file, sep=None, engine='python', decimal=',')
-    else:
-        df_dados = pd.read_excel(uploaded_file)
+# Verifica se a lista de arquivos não está vazia
+if uploaded_files:
+    lista_dfs = []
+    
+    # Processa cada arquivo enviado
+    for file in uploaded_files:
+        if file.name.endswith('.csv'):
+            df_temp = pd.read_csv(file, sep=None, engine='python', decimal=',')
+        else:
+            df_temp = pd.read_excel(file)
+            
+        # DICA DE ENGENHARIA: Se a planilha individual não tiver a coluna 'Cenario',
+        # o código usa o próprio nome do arquivo (ex: "Sim_01.xlsx" vira "Sim_01")
+        if 'Cenario' not in df_temp.columns:
+            # Extrai o nome do arquivo sem a extensão
+            nome_cenario = file.name.rsplit('.', 1)[0]
+            df_temp['Cenario'] = nome_cenario
+            
+        lista_dfs.append(df_temp)
+
+    # Empilha todas as planilhas em um único DataFrame mestre
+    df_dados = pd.concat(lista_dfs, ignore_index=True)
 
     try:
-        # Identifica as colunas de gases dinamicamente (Tudo que começar com 'Porcentagem_')
+        # A partir daqui, o código não muda! Ele continua lendo o df_dados normalmente.
         gas_cols = [col for col in df_dados.columns if col.startswith('Porcentagem_')]
 
         # Extrai os nós únicos garantindo a ordem alfabética (Nó_01, Nó_02...)
