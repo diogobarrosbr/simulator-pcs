@@ -4,6 +4,7 @@ import pandas as pd
 from scipy.cluster.hierarchy import dendrogram, linkage, fcluster
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import silhouette_score
 from scipy.spatial.distance import squareform
 
 st.set_page_config(page_title="Zoneamento PCS", layout="wide")
@@ -85,6 +86,55 @@ if uploaded_file is not None:
             Z = linkage(condensed_dist, method='complete')
             clusters = fcluster(Z, threshold, criterion='distance')
 
+            # --- NOVO: CÁLCULO DO SILHOUETTE SCORE ---
+            num_zonas_unicas = len(set(clusters))
+            
+            # A silhueta só pode ser calculada se houver entre 2 e (N-1) clusters
+            if 1 < num_zonas_unicas < num_nodes:
+                # Usamos metric='precomputed' porque já construímos a matriz de distância perfeita
+                score_silhueta = silhouette_score(dist_matrix, clusters, metric='precomputed')
+            else:
+                score_silhueta = None
+            # -----------------------------------------
+
+            # 5. Visualização
+            col1, col2 = st.columns([2, 1])
+
+            with col1:
+                st.subheader("Dendrograma de Distância")
+                fig, ax = plt.subplots(figsize=(10, 6))
+                dendrogram(Z, labels=node_labels, color_threshold=threshold, ax=ax)
+                ax.axhline(y=threshold, c='r', ls='--', label=f'Corte = {threshold}')
+                ax.set_ylabel("Distância Máxima (Chebyshev)")
+                plt.xticks(rotation=90, ha='center', fontsize=8) 
+                ax.legend()
+                st.pyplot(fig)
+
+            with col2:
+                st.subheader("Resultado das Zonas")
+                df_results = pd.DataFrame({'Nó': node_labels, 'Zona_PCS': clusters})
+                zone_counts = df_results['Zona_PCS'].value_counts()
+                
+                df_results['Status'] = df_results['Zona_PCS'].apply(
+                    lambda x: "✅ OK" if zone_counts[x] >= min_nodes else "⚠️ Isolado"
+                )
+                
+                # --- NOVO: EXIBIÇÃO DA MÉTRICA ---
+                col_m1, col_m2 = st.columns(2)
+                with col_m1:
+                    st.metric("Total de Zonas Válidas", len(zone_counts))
+                with col_m2:
+                    if score_silhueta is not None:
+                        # Exibe com 3 casas decimais e usa a cor do Streamlit para indicar positividade
+                        st.metric("Silhouette Score", f"{score_silhueta:.3f}", 
+                                  help="Varia de -1 a 1. Mais próximo de 1 = Grupos coesos e bem separados.")
+                    else:
+                        st.metric("Silhouette Score", "N/A", 
+                                  help="O score requer pelo menos 2 zonas formadas para ser calculado.")
+                # ---------------------------------
+                
+                st.dataframe(df_results, use_container_width=True, hide_index=True)
+
             # 5. Visualização
             col1, col2 = st.columns([2, 1])
 
@@ -116,3 +166,4 @@ if uploaded_file is not None:
         st.error(f"Erro ao processar os dados. Verifique o formato da planilha. Detalhes técnicos: {e}")
 else:
     st.info("Aguardando o upload do arquivo base (csv ou xlsx)...")
+
