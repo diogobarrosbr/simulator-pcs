@@ -110,6 +110,8 @@ if uploaded_files:
             condensed_dist = squareform(dist_matrix)
             Z = linkage(condensed_dist, method='complete')
             clusters = fcluster(Z, threshold, criterion='distance')
+            df_results = pd.DataFrame({'Nó': node_labels, 'Zona_PCS': clusters})
+            zone_counts = df_results['Zona_PCS'].value_counts()
 
             # --- NOVO: CÁLCULO DO SILHOUETTE SCORE ---
             num_zonas_unicas = len(set(clusters))
